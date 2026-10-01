@@ -1,598 +1,768 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import "./App.css";
 
 
-// ============================================================
-// SUGGESTIONS
-// ============================================================
+const API_URL =
+  import.meta.env.VITE_API_URL ||
+  "http://127.0.0.1:8000";
+
+
+const API_TOKEN =
+  import.meta.env.VITE_API_TOKEN || "";
+
 
 const suggestions = [
-  "What technologies does Yukesh know?",
+  "What programming languages does Yukesh know?",
   "What projects has Yukesh worked on?",
   "What is Yukesh's educational background?",
-  "What is Yukesh's experience with React?",
+  "What did Yukesh achieve on HackerRank?"
 ];
 
 
-// ============================================================
-// FORMAT AI ANSWER
-// ============================================================
-
-function formatAnswer(text) {
-  if (!text) {
-    return null;
-  }
-
-  return text.split("\n").map((line, index) => {
-
-    const formatted = line.replace(
-      /\*\*(.*?)\*\*/g,
-      "<strong>$1</strong>"
-    );
-
-    return (
-      <span
-        key={index}
-        dangerouslySetInnerHTML={{
-          __html: formatted || "&nbsp;",
-        }}
-      />
-    );
-  });
-}
-
-
-// ============================================================
-// APP
-// ============================================================
-
 function App() {
-
-  // ----------------------------------------------------------
-  // INPUT
-  // ----------------------------------------------------------
-
-  const [question, setQuestion] = useState("");
-
-
-  // ----------------------------------------------------------
-  // CONVERSATION
-  // ----------------------------------------------------------
 
   const [messages, setMessages] = useState([]);
 
+  const [question, setQuestion] = useState("");
 
-  // ----------------------------------------------------------
-  // UI STATE
-  // ----------------------------------------------------------
+  const [isStreaming, setIsStreaming] = useState(false);
 
-  const [loading, setLoading] = useState(false);
+  const [apiOnline, setApiOnline] = useState(false);
+
+  const [sources, setSources] = useState([]);
 
   const [error, setError] = useState("");
 
 
-  // ----------------------------------------------------------
-  // AUTO SCROLL
-  // ----------------------------------------------------------
+  /*
+   * Check whether the FastAPI server is available.
+   */
 
-  const messagesEndRef = useRef(null);
+  const checkApiHealth = async () => {
 
+    try {
+
+      const response = await fetch(
+        `${API_URL}/health`
+      );
+
+      if (response.ok) {
+        setApiOnline(true);
+      } else {
+        setApiOnline(false);
+      }
+
+    } catch {
+      setApiOnline(false);
+    }
+  };
+
+
+  /*
+   * Check API status when the application starts.
+   */
 
   useEffect(() => {
 
-    messagesEndRef.current?.scrollIntoView({
-      behavior: "smooth",
-    });
+    checkApiHealth();
 
-  }, [messages, loading]);
+    const interval = setInterval(
+      checkApiHealth,
+      15000
+    );
 
+    return () => {
+      clearInterval(interval);
+    };
 
-  // ==========================================================
-  // ASK QUESTION
-  // ==========================================================
-
-  const askQuestion = async () => {
-
-    const trimmedQuestion = question.trim();
+  }, []);
 
 
-    // --------------------------------------------------------
-    // Validation
-    // --------------------------------------------------------
+  /*
+   * Send a question to FastAPI
+   * using authenticated SSE streaming.
+   */
 
-    if (!trimmedQuestion || loading) {
+  const askQuestion = async (
+    submittedQuestion = question
+  ) => {
+
+    const trimmedQuestion =
+      submittedQuestion.trim();
+
+
+    if (!trimmedQuestion) {
       return;
     }
 
 
-    // --------------------------------------------------------
-    // Clear error
-    // --------------------------------------------------------
+    if (isStreaming) {
+      return;
+    }
+
+
+    if (!API_TOKEN) {
+
+      setError(
+        "API token is not configured. " +
+        "Check frontend/.env."
+      );
+
+      return;
+    }
+
 
     setError("");
 
+    setSources([]);
 
-    // --------------------------------------------------------
-    // Save current conversation history BEFORE adding
-    // current user question.
-    //
-    // This is important because the backend should receive
-    // previous conversation turns as context.
-    // --------------------------------------------------------
-
-    const conversationHistory = messages.map((message) => ({
-      role: message.role,
-      content: message.content,
-    }));
+    setIsStreaming(true);
 
 
-    // --------------------------------------------------------
-    // Add user message immediately to UI
-    // --------------------------------------------------------
+    /*
+     * Add the user's message.
+     */
 
     const userMessage = {
-      id: Date.now(),
       role: "user",
-      content: trimmedQuestion,
+      content: trimmedQuestion
     };
+
+
+    /*
+     * Add an empty assistant message.
+     * It will be filled progressively
+     * as streaming chunks arrive.
+     */
+
+    const assistantMessage = {
+      role: "assistant",
+      content: ""
+    };
+
 
     setMessages((previousMessages) => [
       ...previousMessages,
       userMessage,
+      assistantMessage
     ]);
 
 
-    // --------------------------------------------------------
-    // Clear input
-    // --------------------------------------------------------
-
     setQuestion("");
-
-    setLoading(true);
 
 
     try {
 
-      // ======================================================
-      // API REQUEST
-      // ======================================================
+      /*
+       * Convert previous messages into the
+       * format expected by FastAPI.
+       *
+       * We exclude the newly-created assistant
+       * message because it is currently empty.
+       */
+
+      const conversationHistory =
+        messages.map((message) => ({
+          role: message.role,
+          content: message.content
+        }));
+
+
+      /*
+       * Authenticated streaming request.
+       */
 
       const response = await fetch(
-        "http://127.0.0.1:8000/chat",
+        `${API_URL}/chat/stream`,
         {
           method: "POST",
 
           headers: {
             "Content-Type": "application/json",
+
+            "Authorization":
+              `Bearer ${API_TOKEN}`
           },
 
           body: JSON.stringify({
             question: trimmedQuestion,
-
             conversation_history:
-              conversationHistory,
-          }),
+              conversationHistory
+          })
         }
       );
 
 
-      // ------------------------------------------------------
-      // HTTP ERROR
-      // ------------------------------------------------------
+      /*
+       * Handle authentication failure.
+       */
 
-      if (!response.ok) {
-
-        const errorData = await response.json()
-          .catch(() => null);
+      if (response.status === 401) {
 
         throw new Error(
-          errorData?.detail ||
-          "API request failed"
+          "Authentication failed. " +
+          "Check VITE_API_TOKEN in frontend/.env."
         );
       }
 
 
-      // ------------------------------------------------------
-      // RESPONSE
-      // ------------------------------------------------------
+      /*
+       * Handle other API errors.
+       */
 
-      const data = await response.json();
+      if (!response.ok) {
 
+        let errorMessage =
+          `API request failed: ${response.status}`;
 
-      // ======================================================
-      // ADD AI RESPONSE
-      // ======================================================
+        try {
 
-      const assistantMessage = {
-        id: Date.now() + 1,
+          const errorData =
+            await response.json();
 
-        role: "assistant",
+          if (errorData.detail) {
+            errorMessage =
+              errorData.detail;
+          }
 
-        content: data.answer,
+        } catch {
+          // Keep the default error message.
+        }
 
-        sources: data.sources || [],
-      };
-
-
-      setMessages((previousMessages) => [
-        ...previousMessages,
-        assistantMessage,
-      ]);
-
-    } catch (error) {
-
-      console.error(error);
+        throw new Error(errorMessage);
+      }
 
 
-      // ------------------------------------------------------
-      // Error message
-      // ------------------------------------------------------
+      /*
+       * Make sure the browser received
+       * a streaming response body.
+       */
 
-      setError(
-        error.message ||
-        "Unable to connect to the AI server. Make sure FastAPI is running."
+      if (!response.body) {
+
+        throw new Error(
+          "Streaming response is not available."
+        );
+      }
+
+
+      const reader =
+        response.body.getReader();
+
+
+      const decoder =
+        new TextDecoder("utf-8");
+
+
+      let buffer = "";
+
+
+      /*
+       * Read SSE data continuously.
+       */
+
+      while (true) {
+
+        const {
+          value,
+          done
+        } = await reader.read();
+
+
+        if (done) {
+          break;
+        }
+
+
+        buffer += decoder.decode(
+          value,
+          {
+            stream: true
+          }
+        );
+
+
+        /*
+         * SSE events are separated by
+         * two newline characters.
+         */
+
+        const events =
+          buffer.split("\n\n");
+
+
+        /*
+         * Keep the incomplete event for
+         * the next iteration.
+         */
+
+        buffer =
+          events.pop() || "";
+
+
+        for (const event of events) {
+
+          const lines =
+            event.split("\n");
+
+
+          for (const line of lines) {
+
+            if (
+              !line.startsWith("data:")
+            ) {
+              continue;
+            }
+
+
+            const jsonText =
+              line.substring(5).trim();
+
+
+            if (!jsonText) {
+              continue;
+            }
+
+
+            let payload;
+
+
+            try {
+
+              payload =
+                JSON.parse(jsonText);
+
+            } catch {
+
+              continue;
+            }
+
+
+            /*
+             * Receive source metadata.
+             */
+
+            if (
+              payload.type === "sources"
+            ) {
+
+              setSources(
+                payload.sources || []
+              );
+
+              continue;
+            }
+
+
+            /*
+             * Receive streamed LLM content.
+             */
+
+            if (
+              payload.type === "content"
+            ) {
+
+              setMessages(
+                (previousMessages) => {
+
+                  const updatedMessages =
+                    [...previousMessages];
+
+
+                  const lastIndex =
+                    updatedMessages.length - 1;
+
+
+                  if (
+                    updatedMessages[lastIndex]
+                    ?.role === "assistant"
+                  ) {
+
+                    updatedMessages[
+                      lastIndex
+                    ] = {
+                      ...updatedMessages[
+                        lastIndex
+                      ],
+
+                      content:
+                        updatedMessages[
+                          lastIndex
+                        ].content +
+                        payload.content
+                    };
+
+                  }
+
+
+                  return updatedMessages;
+                }
+              );
+
+              continue;
+            }
+
+
+            /*
+             * Streaming completed.
+             */
+
+            if (
+              payload.type === "done"
+            ) {
+
+              continue;
+            }
+          }
+        }
+      }
+
+
+      /*
+       * Flush any remaining decoder data.
+       */
+
+      buffer += decoder.decode();
+
+
+    } catch (err) {
+
+      console.error(
+        "Streaming error:",
+        err
       );
 
 
+      setError(
+        err.message ||
+        "Unable to communicate with the API."
+      );
+
+
+      /*
+       * Remove the empty assistant
+       * message if the request failed
+       * before receiving any content.
+       */
+
+      setMessages(
+        (previousMessages) => {
+
+          const lastMessage =
+            previousMessages[
+              previousMessages.length - 1
+            ];
+
+
+          if (
+            lastMessage?.role === "assistant" &&
+            !lastMessage.content
+          ) {
+
+            return previousMessages.slice(
+              0,
+              -1
+            );
+          }
+
+
+          return previousMessages;
+        }
+      );
+
     } finally {
 
-      setLoading(false);
-
+      setIsStreaming(false);
     }
   };
 
 
-  // ==========================================================
-  // KEYBOARD HANDLER
-  // ==========================================================
+  /*
+   * Submit form.
+   */
 
-  const handleKeyDown = (event) => {
+  const handleSubmit = (event) => {
 
-    if (
-      event.key === "Enter" &&
-      !event.shiftKey
-    ) {
+    event.preventDefault();
 
-      event.preventDefault();
-
-      askQuestion();
-    }
+    askQuestion();
   };
 
 
-  // ==========================================================
-  // SUGGESTION
-  // ==========================================================
+  /*
+   * Use one of the suggested questions.
+   */
 
-  const selectSuggestion = (suggestion) => {
+  const handleSuggestion = (
+    suggestion
+  ) => {
+
+    if (isStreaming) {
+      return;
+    }
 
     setQuestion(suggestion);
 
+    askQuestion(suggestion);
   };
 
-
-  // ==========================================================
-  // CLEAR CHAT
-  // ==========================================================
-
-  const clearChat = () => {
-
-    setMessages([]);
-
-    setQuestion("");
-
-    setError("");
-
-  };
-
-
-  // ==========================================================
-  // RENDER
-  // ==========================================================
 
   return (
-
     <div className="app">
 
-      {/* ====================================================
-          BACKGROUND GLOW
-      ==================================================== */}
-
-      <div className="glow glow-one"></div>
-
-      <div className="glow glow-two"></div>
-
-
-      {/* ====================================================
+      {/* ================================
           NAVBAR
-      ==================================================== */}
+          ================================ */}
 
-      <header className="navbar">
+      <nav className="navbar">
 
         <div className="brand">
 
-          <div className="brand-icon">
-            ✦
+          <div className="brand-mark">
+            R
           </div>
 
           <div>
-
             <div className="brand-name">
-              Resume<span>RAG</span>
+              ResumeRAG
             </div>
 
             <div className="brand-subtitle">
-              AI Resume Intelligence
+              Production AI
             </div>
-
           </div>
 
         </div>
 
 
-        <div className="navbar-actions">
+        <div className="api-status">
 
-          <div className="status">
+          <span
+            className={
+              apiOnline
+                ? "status-dot online"
+                : "status-dot offline"
+            }
+          />
 
-            <span className="status-dot"></span>
-
-            API Online
-
-          </div>
-
-
-          {messages.length > 0 && (
-
-            <button
-              className="clear-button"
-              onClick={clearChat}
-            >
-              Clear Chat
-            </button>
-
-          )}
+          <span>
+            {apiOnline
+              ? "API Online"
+              : "API Offline"}
+          </span>
 
         </div>
 
-      </header>
+      </nav>
 
 
-      {/* ====================================================
-          MAIN
-      ==================================================== */}
+      {/* ================================
+          HERO
+          ================================ */}
 
-      <main className="main">
+      <main className="main-container">
+
+        <section className="hero">
+
+          <div className="hero-badge">
+            <span>✦</span>
+            AI-Powered Resume Assistant
+          </div>
 
 
-        {/* ==================================================
-            HERO
-        ================================================== */}
+          <h1>
+            Ask questions.
+            <br />
 
-        {messages.length === 0 && (
+            <span>
+              Get grounded answers.
+            </span>
+          </h1>
 
-          <section className="hero">
 
-            <div className="hero-badge">
+          <p className="hero-description">
 
-              <span>✦</span>
+            A production-ready RAG system that
+            searches Yukesh's resume using
+            semantic search, keyword retrieval,
+            re-ranking and LLM generation.
 
-              Production RAG System
+          </p>
+
+
+          <div className="architecture">
+
+            <span>HYBRID SEARCH</span>
+
+            <span className="arrow">
+              →
+            </span>
+
+            <span>RE-RANKING</span>
+
+            <span className="arrow">
+              →
+            </span>
+
+            <span>LLM</span>
+
+          </div>
+
+        </section>
+
+
+        {/* ================================
+            CHAT CONTAINER
+            ================================ */}
+
+        <section className="chat-container">
+
+          <div className="chat-header">
+
+            <div>
+
+              <div className="chat-title">
+                Resume Assistant
+              </div>
+
+              <div className="chat-subtitle">
+                Ask anything about the resume
+              </div>
 
             </div>
 
 
-            <h1>
+            <div className="grounded-badge">
+              <span>●</span>
+              RAG Grounded
+            </div>
 
-              Ask anything about
-
-              <span>
-                {" "}Yukesh's resume.
-              </span>
-
-            </h1>
+          </div>
 
 
-            <p>
+          {/* ==============================
+              MESSAGES
+              ============================== */}
 
-              An AI-powered resume assistant using
-              semantic search, hybrid retrieval,
-              re-ranking and LLM generation.
+          <div className="messages">
 
-            </p>
+            {messages.length === 0 && (
 
-          </section>
+              <div className="empty-state">
 
-        )}
-
-
-        {/* ==================================================
-            CHAT AREA
-        ================================================== */}
-
-        {messages.length > 0 && (
-
-          <section className="chat-container">
-
-            {messages.map((message) => (
-
-              <div
-                key={message.id}
-                className={`message-row ${message.role}`}
-              >
-
-                {/* ------------------------------------------
-                    MESSAGE ICON
-                ------------------------------------------ */}
-
-                <div className="message-avatar">
-
-                  {message.role === "user"
-                    ? "Y"
-                    : "✦"}
-
+                <div className="empty-icon">
+                  ✦
                 </div>
 
+                <h2>
+                  Start a conversation
+                </h2>
 
-                {/* ------------------------------------------
-                    MESSAGE CONTENT
-                ------------------------------------------ */}
+                <p>
+                  Ask about skills, projects,
+                  education, experience or
+                  achievements.
+                </p>
 
-                <div className="message-wrapper">
+              </div>
 
-                  <div className="message-name">
+            )}
+
+
+            {messages.map(
+              (message, index) => (
+
+                <div
+                  key={index}
+                  className={
+                    message.role === "user"
+                      ? "message user-message"
+                      : "message assistant-message"
+                  }
+                >
+
+                  <div className="message-label">
 
                     {message.role === "user"
-                      ? "You"
-                      : "Resume AI"}
+                      ? "YOU"
+                      : "AI"}
 
                   </div>
 
 
-                  <div className="message-bubble">
+                  <div className="message-content">
 
-                    <div className="message-content">
+                    {message.content}
 
-                      {message.role === "assistant"
-                        ? formatAnswer(message.content)
-                        : message.content}
-
-                    </div>
-
-
-                    {/* ----------------------------------------
-                        SOURCES
-                    ---------------------------------------- */}
 
                     {message.role === "assistant" &&
-                      message.sources &&
-                      message.sources.length > 0 && (
+                      isStreaming &&
+                      index ===
+                        messages.length - 1 && (
 
-                        <div className="message-sources">
+                        <span className="cursor">
+                          ▋
+                        </span>
 
-                          <div className="sources-heading">
+                    )}
 
-                            <span>
-                              Sources
-                            </span>
+                  </div>
 
-                            <span className="source-count">
+                </div>
 
-                              {message.sources.length}
-                              {" "}chunks
+            ))}
 
-                            </span>
 
+            {/* ==============================
+                SOURCES
+                ============================== */}
+
+            {sources.length > 0 && (
+
+              <div className="sources-section">
+
+                <div className="sources-title">
+                  Sources
+                </div>
+
+
+                <div className="sources-grid">
+
+                  {sources.map(
+                    (source, index) => (
+
+                      <div
+                        key={
+                          source.id ||
+                          index
+                        }
+                        className="source-card"
+                      >
+
+                        <div className="source-icon">
+                          ◈
+                        </div>
+
+                        <div>
+
+                          <div className="source-name">
+                            {source.source ||
+                              "resume.pdf"}
                           </div>
 
+                          <div className="source-meta">
 
-                          <div className="sources-grid">
-
-                            {message.sources.map(
-                              (source) => (
-
-                                <div
-                                  className="source-card"
-                                  key={source.id}
-                                >
-
-                                  <div className="source-top">
-
-                                    <div className="file-icon">
-                                      PDF
-                                    </div>
-
-
-                                    <div className="source-info">
-
-                                      <strong>
-                                        {source.source}
-                                      </strong>
-
-                                      <span>
-                                        Chunk{" "}
-                                        {source.chunk_index}
-                                      </span>
-
-                                    </div>
-
-                                  </div>
-
-
-                                  {source.score !== null &&
-                                    source.score !== undefined && (
-
-                                      <div className="score">
-
-                                        <span>
-                                          Relevance
-                                        </span>
-
-                                        <strong>
-                                          {source.score.toFixed(2)}
-                                        </strong>
-
-                                      </div>
-
-                                    )}
-
-                                </div>
-
-                              )
-                            )}
+                            Chunk{" "}
+                            {source.chunk_index ??
+                              "N/A"}
 
                           </div>
 
                         </div>
 
-                      )}
+                      </div>
 
-                  </div>
-
-                </div>
-
-              </div>
-
-            ))}
-
-
-            {/* =================================================
-                LOADING MESSAGE
-            ================================================= */}
-
-            {loading && (
-
-              <div className="message-row assistant">
-
-                <div className="message-avatar">
-                  ✦
-                </div>
-
-
-                <div className="message-wrapper">
-
-                  <div className="message-name">
-                    Resume AI
-                  </div>
-
-
-                  <div className="message-bubble loading-bubble">
-
-                    <div className="thinking">
-
-                      <span className="thinking-dot"></span>
-
-                      <span className="thinking-dot"></span>
-
-                      <span className="thinking-dot"></span>
-
-                    </div>
-
-
-                    <span>
-                      Searching the resume...
-                    </span>
-
-                  </div>
+                  ))}
 
                 </div>
 
@@ -601,203 +771,242 @@ function App() {
             )}
 
 
-            <div ref={messagesEndRef}></div>
+            {/* ==============================
+                ERROR
+                ============================== */}
 
-          </section>
+            {error && (
 
-        )}
+              <div className="error-card">
 
+                <div className="error-icon">
+                  !
+                </div>
 
-        {/* ==================================================
-            ERROR
-        ================================================== */}
+                <div>
 
-        {error && (
+                  <div className="error-title">
+                    Request failed
+                  </div>
 
-          <div className="error-card">
+                  <div className="error-message">
+                    {error}
+                  </div>
 
-            <span>⚠</span>
+                </div>
 
-            <div>
+              </div>
 
-              <strong>
-                Connection error
-              </strong>
-
-              <p>
-                {error}
-              </p>
-
-            </div>
+            )}
 
           </div>
 
-        )}
 
+          {/* ================================
+              SUGGESTIONS
+              ================================ */}
 
-        {/* ==================================================
-            INITIAL SUGGESTIONS
-        ================================================== */}
+          <div className="suggestions">
 
-        {messages.length === 0 && (
-
-          <section className="suggestions">
-
-            <span className="suggestion-title">
+            <div className="suggestions-title">
               Try asking
-            </span>
+            </div>
 
 
-            <div className="suggestion-list">
+            <div className="suggestions-list">
 
-              {suggestions.map((suggestion) => (
+              {suggestions.map(
+                (suggestion, index) => (
 
-                <button
-                  key={suggestion}
-                  className="suggestion"
-                  onClick={() =>
-                    selectSuggestion(suggestion)
-                  }
-                >
-
-                  {suggestion}
-
-                </button>
+                  <button
+                    key={index}
+                    className="suggestion"
+                    onClick={() =>
+                      handleSuggestion(
+                        suggestion
+                      )
+                    }
+                    disabled={isStreaming}
+                  >
+                    {suggestion}
+                  </button>
 
               ))}
 
             </div>
 
-          </section>
-
-        )}
-
-
-        {/* ==================================================
-            INPUT CARD
-        ================================================== */}
-
-        <section className="ask-card">
-
-          <div className="input-header">
-
-            <span className="input-label">
-              {messages.length > 0
-                ? "Continue the conversation"
-                : "Ask a question"}
-            </span>
-
-
-            <span className="input-hint">
-              Enter ↵ to send
-            </span>
-
           </div>
 
 
-          <textarea
-            value={question}
-            onChange={(event) =>
-              setQuestion(event.target.value)
-            }
-            onKeyDown={handleKeyDown}
-            placeholder={
-              messages.length > 0
-                ? "Ask a follow-up question..."
-                : "e.g. What technologies does Yukesh know?"
-            }
-            rows={4}
-            maxLength={500}
-          />
+          {/* ================================
+              INPUT
+              ================================ */}
+
+          <form
+            className="input-area"
+            onSubmit={handleSubmit}
+          >
+
+            <input
+              type="text"
+              value={question}
+              onChange={(event) =>
+                setQuestion(
+                  event.target.value
+                )
+              }
+              placeholder={
+                isStreaming
+                  ? "AI is responding..."
+                  : "Ask a question about the resume..."
+              }
+              disabled={
+                isStreaming ||
+                !apiOnline
+              }
+            />
+
+
+            <button
+              type="submit"
+              className="ask-button"
+              disabled={
+                isStreaming ||
+                !question.trim() ||
+                !apiOnline
+              }
+            >
+
+              {isStreaming
+                ? "Thinking..."
+                : "Ask AI →"}
+
+            </button>
+
+          </form>
 
 
           <div className="input-footer">
 
-            <span className="character-count">
-              {question.length}/500
+            <span>
+              🔒 Authenticated API
             </span>
 
+            <span>
+              •
+            </span>
 
-            <button
-              className="ask-button"
-              onClick={askQuestion}
-              disabled={
-                loading ||
-                !question.trim()
-              }
-            >
+            <span>
+              Streaming enabled
+            </span>
 
-              {loading ? (
+            <span>
+              •
+            </span>
 
-                <>
-
-                  <span className="spinner"></span>
-
-                  Thinking...
-
-                </>
-
-              ) : (
-
-                <>
-
-                  Ask AI
-
-                  <span className="arrow">
-                    ↗
-                  </span>
-
-                </>
-
-              )}
-
-            </button>
+            <span>
+              Resume grounded
+            </span>
 
           </div>
 
         </section>
 
 
-        {/* ==================================================
-            FOOTER
-        ================================================== */}
+        {/* ================================
+            INFO CARD
+            ================================ */}
 
-        <footer>
+        <section className="info-card">
 
-          <div>
+          <div className="info-item">
 
-            Built with
+            <div className="info-number">
+              01
+            </div>
 
-            <strong>
-              {" "}React
-            </strong>
+            <div>
 
-            {" + "}
+              <h3>
+                Hybrid Retrieval
+              </h3>
 
-            <strong>
-              FastAPI
-            </strong>
+              <p>
+                Semantic search combined with
+                BM25 keyword retrieval.
+              </p>
 
-            {" + "}
-
-            <strong>
-              RAG
-            </strong>
+            </div>
 
           </div>
 
 
+          <div className="info-item">
+
+            <div className="info-number">
+              02
+            </div>
+
+            <div>
+
+              <h3>
+                Re-ranking
+              </h3>
+
+              <p>
+                Cross-encoder scoring improves
+                retrieved context quality.
+              </p>
+
+            </div>
+
+          </div>
+
+
+          <div className="info-item">
+
+            <div className="info-number">
+              03
+            </div>
+
+            <div>
+
+              <h3>
+                Grounded Generation
+              </h3>
+
+              <p>
+                LLM responses are generated
+                using retrieved resume evidence.
+              </p>
+
+            </div>
+
+          </div>
+
+        </section>
+
+
+        {/* ================================
+            FOOTER
+            ================================ */}
+
+        <footer className="footer">
+
           <span>
-            Production Resume RAG · v1.0
+            Production Resume RAG
+          </span>
+
+          <span>
+            Built with React + FastAPI +
+            ChromaDB + Groq
           </span>
 
         </footer>
 
-
       </main>
 
     </div>
-
   );
 }
 

@@ -1,0 +1,96 @@
+[
+  {
+    "id": "q01",
+    "question": "What programming languages does Yukesh know?",
+    "answerable": true,
+    "required_facts": [
+      "Java",
+      "Python",
+      "C/C++",
+      "JavaScript",
+      "PHP"
+    ]
+  },
+  {
+    "id": "q02",
+    "question": "What frameworks and technologies does Yukesh know?",
+    "answerable": true,
+    "required_facts": [
+      "Spring Boot",
+      "ReactJS",
+      "Bootstrap",
+      "REST APIs"
+    ]
+  },
+  {
+    "id": "q03",
+    "question": "What databases does Yukesh know?",
+    "answerable": true,
+    "required_facts": [
+      "SQL",
+      "MySQL"
+    ]
+  },
+  {
+    "id": "q04",
+    "question": "What is Yukesh's educational background?",
+    "answerable": true,
+    "required_facts": [
+      "Salem College of Engineering and Technology",
+      "B.E.",
+      "Computer Science and Engineering",
+      "2020-2024",
+      "8.01"
+    ]
+  },
+  {
+    "id": "q05",
+    "question": "What projects has Yukesh worked on?",
+    "answerable": true,
+    "required_facts": [
+      "Real-Time Chat Application",
+      "Java Sockets",
+      "Full-Stack Ration Shop Management System"
+    ]
+  },
+  {
+    "id": "q06",
+    "question": "What is Yukesh's experience with ReactJS?",
+    "answerable": true,
+    "required_facts": [
+      "ReactJS"
+    ]
+  },
+  {
+    "id": "q07",
+    "question": "What is Yukesh's experience with Java Sockets?",
+    "answerable": true,
+    "required_facts": [
+      "Java Sockets",
+      "Real-Time Chat Application"
+    ]
+  },
+  {
+    "id": "q08",
+    "question": "What did Yukesh achieve on HackerRank?",
+    "answerable": true,
+    "required_facts": [
+      "2 Stars in Java",
+      "20+ coding problems"
+    ]
+  },
+  {
+    "id": "q09",
+    "question": "What is Yukesh's CGPA?",
+    "answerable": true,
+    "required_facts": [
+      "8.01"
+    ]
+  },
+  {
+    "id": "q10",
+    "question": "What is Yukesh's favorite food?",
+    "answerable": false,
+    "required_facts": []
+  }
+]

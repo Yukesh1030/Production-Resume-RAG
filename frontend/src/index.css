@@ -1,11 +1,20 @@
-html {
-  background: #09090b;
+html,
+body,
+#root {
+  width: 100%;
+  min-height: 100%;
 }
+
+
+html {
+  background: #05070d;
+}
+
 
 body {
   margin: 0;
-  background: #09090b;
 }
+
 
 #root {
   min-height: 100vh;

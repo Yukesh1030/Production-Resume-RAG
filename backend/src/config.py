@@ -3,54 +3,57 @@ import os
 from dotenv import load_dotenv
 
 
-# ============================================================
-# LOAD ENVIRONMENT VARIABLES
-# ============================================================
-
 load_dotenv()
 
 
-# ============================================================
-# API CONFIGURATION
-# ============================================================
-
-GROQ_API_KEY = os.getenv("GROQ_API_KEY")
+GROQ_API_KEY = os.getenv(
+    "GROQ_API_KEY"
+)
 
 MODEL_NAME = os.getenv(
     "MODEL_NAME",
     "openai/gpt-oss-20b"
 )
 
-
-# ============================================================
-# CORS CONFIGURATION
-# ============================================================
-
-CORS_ORIGINS = os.getenv(
-    "CORS_ORIGINS",
-    "http://localhost:5173,http://127.0.0.1:5173"
-).split(",")
+API_TOKEN = os.getenv(
+    "API_TOKEN"
+)
 
 
-# ============================================================
-# RAG CONFIGURATION
-# ============================================================
+CORS_ORIGINS = [
+    origin.strip()
+    for origin in os.getenv(
+        "CORS_ORIGINS",
+        "http://localhost:5173,"
+        "http://127.0.0.1:5173"
+    ).split(",")
+    if origin.strip()
+]
+
 
 CANDIDATE_K = int(
-    os.getenv("CANDIDATE_K", "5")
+    os.getenv(
+        "CANDIDATE_K",
+        "5"
+    )
 )
+
 
 FINAL_K = int(
-    os.getenv("FINAL_K", "3")
+    os.getenv(
+        "FINAL_K",
+        "3"
+    )
 )
 
-
-# ============================================================
-# VALIDATION
-# ============================================================
 
 if not GROQ_API_KEY:
     raise ValueError(
-        "GROQ_API_KEY is not configured. "
-        "Add it to the .env file."
+        "GROQ_API_KEY is not configured."
+    )
+
+
+if not API_TOKEN:
+    raise ValueError(
+        "API_TOKEN is not configured."
     )

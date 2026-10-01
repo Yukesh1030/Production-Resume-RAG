@@ -1,10 +1,13 @@
-RELEVANCE_THRESHOLD = -5.0
+def is_relevant(results):
+    """
+    Determine whether retrieval produced usable evidence.
 
+    We intentionally do not use a fixed cross-encoder
+    score threshold because reranker scores depend on
+    the model, query, corpus and chunking strategy.
+    """
 
-def is_relevant(results, threshold=RELEVANCE_THRESHOLD):
     if not results:
         return False
 
-    best_score = results[0]["score"]
-
-    return best_score >= threshold
+    return True

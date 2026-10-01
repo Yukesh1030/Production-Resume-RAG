@@ -126,3 +126,44 @@ htmlcov/
 # ============================================================
 
 backend/data/*.pdf
+
+# Application logs
+backend/logs/
+
+# Environment variables
+.env
+.env.*
+!.env.example
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+
+# Virtual environments
+venv/
+.venv/
+
+# ChromaDB
+backend/chroma_db/
+
+# Resume data
+backend/data/resume.pdf
+
+# Logs
+backend/logs/
+
+# Frontend
+frontend/node_modules/
+frontend/dist/
+
+# Frontend environment
+frontend/.env
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
